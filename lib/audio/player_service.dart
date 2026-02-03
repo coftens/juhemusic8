@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
-import 'package:rxdart/rxdart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/php_api_client.dart';
@@ -156,21 +155,7 @@ class PlayerService extends ChangeNotifier {
   Duration get position => _player?.position ?? _savedPosition;
   Duration get duration => _player?.duration ?? _savedDuration;
 
-  Stream<Duration> get positionStream {
-    if (_player == null) return Stream.value(Duration.zero);
-    return Rx.combineLatest2<Duration, PlayerState, Duration?>(
-      _player!.positionStream,
-      _player!.playerStateStream,
-      (pos, state) {
-        // 在缓冲或加载时，不更新进度，防止界面/歌词跑在音频前面
-        if (state.processingState == ProcessingState.buffering ||
-            state.processingState == ProcessingState.loading) {
-          return null;
-        }
-        return pos;
-      },
-    ).whereType<Duration>();
-  }
+  Stream<Duration> get positionStream => _player?.positionStream ?? Stream<Duration>.empty();
   Stream<PlayerState> get playerStateStream => _player?.playerStateStream ?? Stream<PlayerState>.empty();
 
   bool get hasPrev => _order.isNotEmpty && _orderPos > 0;
@@ -207,6 +192,10 @@ class PlayerService extends ChangeNotifier {
     _player = p;
     _subs.add(
       p.positionStream.listen((pos) {
+        // 缓冲时忽略位置更新，防止进度条抢跑
+        if (p.processingState == ProcessingState.buffering || 
+            p.processingState == ProcessingState.loading) return;
+            
         _savedPosition = pos;
         notifyListeners();
         if (_savedWasPlaying) {
@@ -735,9 +724,14 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> seek(Duration d) async {
     if (_player == null) return;
+    
+    // 1. 立即更新 UI 到目标位置 (Follow Hand)
+    _savedPosition = d;
+    notifyListeners();
+    
+    // 2. 执行 Seek
     await _player!.seek(d);
-    // 移除手动 notifyListeners，依赖 positionStream/playerStateStream 更新
-    // 以解决 iOS 端 Seek 后 UI/歌词跑在音频前面的问题 (AV Sync)
+    
     _schedulePersist();
   }
 

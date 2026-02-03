@@ -102,6 +102,9 @@ class _LyricsPageState extends State<LyricsPage> {
 
   void _onPos(Duration pos) {
     if (_lines.isEmpty) return;
+    // 缓冲时暂停歌词滚动，防止歌词抢跑
+    if (_svc.isBuffering) return;
+    
     final ms = pos.inMilliseconds;
     final idx = _findActiveIndex(ms);
     if (idx == _activeIndex) return;
